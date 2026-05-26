@@ -1,235 +1,194 @@
-# YT → AI PIPELINE — Descripción completa del proyecto
+# AI Prompt Vault - Descripcion del proyecto
 
-## Qué hace
+## Que hace
 
-Extensión de Chrome (Manifest V3) que automatiza un pipeline de tres pasos:
+Extension de Chrome Manifest V3 que funciona como vault de prompts para varios modelos de IA. Permite organizar prompts por modelo, guardar imagenes referenciales embebidas, copiar texto desde la pestana activa, conservar una memoria persistente y abrir el sitio del modelo elegido.
 
-1. Captura la URL de un video de YouTube o Short desde la pestaña activa
-2. Construye un prompt para Gemini (resumen del video) y lo copia al portapapeles; abre Gemini
-3. El usuario copia el resumen de Gemini, la extensión lo combina con un prompt de ChatGPT elegido y abre ChatGPT
-
-El objetivo es convertir un video de YouTube en un infograma, hilo de Twitter, resumen ejecutivo, u otro formato de contenido, usando Gemini como intermediario para resumir y ChatGPT para formatear.
-
----
+El flujo actual no automatiza Gemini ni ChatGPT mediante inyeccion. La extension trabaja principalmente con el portapapeles, `chrome.storage.local` y el side panel.
 
 ## Arquitectura
 
-```
+```text
 Extension Hacer Publicacion/
-├── manifest.json          Configuración MV3, permisos, content scripts
-├── popup.html             UI principal (360×~800px, tema oscuro)
-├── popup.js               Toda la lógica de la extensión (386 líneas)
-├── chatgpt_content.js     Content script registrado en ChatGPT (ver nota abajo)
-├── gemini_content.js      Script de inyección para Gemini (NO registrado en manifest)
-├── icon.png               Ícono de la extensión (48px)
-└── README.md              Instrucciones de instalación
+├── manifest.json          Configuracion MV3, permisos, side panel y content scripts
+├── background.js          Abre el side panel al hacer click en la accion
+├── popup.html             UI completa y CSS inline
+├── popup.js               Logica principal del vault
+├── chatgpt_content.js     Content script legacy para ChatGPT
+├── gemini_content.js      Content script legacy no registrado en manifest
+├── icon.png               Icono de la extension
+├── README.md              Guia rapida de instalacion y uso
+├── PROYECTO.md            Descripcion tecnica del proyecto
+└── AGENTS.md              Guia operativa para agentes/cambios futuros
 ```
 
----
-
-## Archivos principales y su función
+## Archivos principales
 
 ### `manifest.json`
-- Manifest Version 3
-- **Permisos:** `activeTab`, `scripting`, `storage`, `tabs`
-- **Host permissions:** `youtube.com`, `gemini.google.com`, `chatgpt.com`
-- **Popup:** `popup.html`
-- **Content script registrado:** solo `chatgpt_content.js` en `https://chatgpt.com/*`
-- `gemini_content.js` **no está registrado** en este archivo (ver sección "Estado actual del código")
+
+- Manifest Version 3.
+- Nombre actual: `AI Prompt Vault`.
+- Usa `side_panel.default_path: "popup.html"`.
+- Declara `background.js` como service worker.
+- Registra `chatgpt_content.js` solo para `https://chatgpt.com/*`.
+- No registra `gemini_content.js`.
+- Incluye permisos para storage, tabs, sidePanel, scripting y clipboard.
+- Incluye host permissions para ChatGPT, Gemini, Claude, Grok, Perplexity, Midjourney, Ideogram, Stable Diffusion Web y YouTube.
 
 ### `popup.html`
-Interfaz de 360px de ancho con tres pantallas (tabs) en un header de navegación:
 
-| Tab | ID de screen | Contenido |
-|-----|-------------|-----------|
-| Flujo | `screenMain` | Los 3 pasos del pipeline con botones |
-| Config | `screenSettings` | Editor de prompts (Gemini y ChatGPT) |
-| Imgs | `screenImages` | Galería de imágenes de referencia |
+Contiene toda la UI y todo el CSS inline. La interfaz tiene dos pantallas principales:
 
-**Estilos:** Todo CSS inline en el `<head>`. Tema oscuro (`#0a0a0a`). Tipografías Google Fonts: `Space Mono` (monospace, UI general) y `Syne` (header). Colores principales: rojo `#ff0000` (primario/activo), azul `#8888ff` (secundario/Gemini), verde `#4caf50` (éxito/hecho).
+| Pantalla | ID | Funcion |
+|---|---|---|
+| Vault | `screenMain` | Elegir modelo/prompt, copiar dato, guardar memoria, unir prompt + dato y abrir modelo |
+| Config | `screenSettings` | Editar modelos y prompts por modelo |
+
+Dentro de Config hay dos subpestanas:
+
+| Subpantalla | ID |
+|---|---|
+| Modelos de IA | `settingsModelsPanel` |
+| Prompts por modelo | `settingsPromptsPanel` |
+
+El ancho actual del panel es `720px`.
 
 ### `popup.js`
-Lógica completa de la extensión. Sin dependencias externas.
 
-**Estado global en memoria (se pierde al cerrar popup, pero se persiste en storage):**
+Contiene la logica principal, sin dependencias externas.
+
+Estado global:
+
 ```js
-capturedURL    // string | null — URL del video
-geminiPrompt   // string — prompt para Gemini (editable)
-chatgptPrompts // Array<{id, name, text}> — múltiples prompts para ChatGPT
-savedImages    // Array<{id, dataUrl, name}> — imágenes en base64
+aiModels
+aiPrompts
+activeModelId
+activePromptId
+promptMemory
+currentTabUrl
+activeSettingsTab
+activePromptSettingsModelId
+activePromptSettingsPromptId
 ```
 
-**Claves en `chrome.storage.local`:**
+Funciones importantes:
+
+| Funcion | Uso |
+|---|---|
+| `loadState()` | Carga datos desde `chrome.storage.local` y migra claves legacy |
+| `saveState()` | Persiste modelos, prompts, seleccion activa y memoria |
+| `loadCurrentTabUrl()` | Guarda la URL de la pestana activa |
+| `applyPlaceholders()` | Reemplaza `{{url}}` por `currentTabUrl` |
+| `getActiveTabSelection()` | Lee la seleccion actual en la pestana activa usando `chrome.scripting.executeScript` |
+| `renderMain()` | Renderiza la pantalla principal |
+| `renderSettingsScreen()` | Renderiza Config |
+| `renderModelsSettings()` | Renderiza CRUD de modelos |
+| `renderPromptsSettings()` | Renderiza CRUD de prompts |
+| `saveClipboardToMemory()` | Guarda el texto del portapapeles como memoria persistente |
+| `prependPromptToClipboard()` | Copia `prompt + dato` al portapapeles |
+| `escapeHtml()` / `escapeAttr()` | Sanitizan datos de usuario antes de renderizar con `innerHTML` |
+
+## Flujo principal
+
+```text
+Usuario abre side panel
+       |
+       v
+Selecciona modelo y prompt
+       |
+       v
+Copiar DATO
+  -> intenta leer seleccion de la pestana activa
+  -> si no hay seleccion, copia la URL actual
+       |
+       v
+Guardar DATO
+  -> lee el portapapeles
+  -> guarda promptMemory con texto, imagenes del prompt y metadata
+       |
+       v
+UNIR prompt + DATO
+  -> toma el prompt editable
+  -> usa el texto actual del portapapeles o la memoria guardada
+  -> copia el resultado unido al portapapeles
+       |
+       v
+Abrir modelo
+  -> abre la URL configurada del modelo activo
 ```
-geminiPrompt      string    Prompt personalizado para Gemini
-chatgptPrompts    Array     Lista de prompts con id/name/text
-savedImages       Array     Imágenes codificadas en base64
-flowStep          number    Paso actual (2 o 3) para restaurar sesión
-flowUrl           string    URL capturada para restaurar sesión
-ytUrl             string    Alias de flowUrl (se guarda en btnCapture)
+
+## Datos persistidos
+
+Claves actuales en `chrome.storage.local`:
+
+| Clave | Contenido |
+|---|---|
+| `aiModels` | Lista de modelos `{id, name, url, color, supportsImages}` |
+| `aiPrompts` | Lista de prompts `{id, modelId, name, text, images}` |
+| `activeModelId` | Modelo seleccionado |
+| `activePromptId` | Prompt seleccionado |
+| `promptMemory` | Memoria persistente del dato guardado |
+
+`promptMemory` tiene esta forma:
+
+```js
+{
+  modelId,
+  promptId,
+  text,
+  images,
+  updatedAt
+}
 ```
 
-**Funciones principales:**
+Claves legacy que pueden migrarse:
 
-| Función | Línea | Qué hace |
-|---------|-------|----------|
-| `loadStorage()` | 88 | Carga prompts e imágenes desde storage al iniciar |
-| `restoreFlowState()` | 345 | Restaura el paso del pipeline si el popup se reabre |
-| `resetAll()` | 110 | Limpia estado y UI, vuelve al paso 1 |
-| `activateStep(n)` | 54 | Marca pasos como active/done visualmente |
-| `showScreen(name)` | 70 | Cambia entre las 3 pantallas (main/settings/images) |
-| `populatePromptSelect()` | 127 | Llena el `<select>` con los prompts de ChatGPT |
-| `renderSettingsScreen()` | 204 | Renderiza CRUD de prompts en pantalla Config |
-| `renderImagesScreen()` | 259 | Renderiza galería de imágenes |
-| `handleImageUpload(e)` | 308 | Convierte imágenes a dataURL y las guarda |
-| `showToast(msg, type)` | 38 | Notificación temporal en la parte inferior |
-| `escapeHtml(str)` | 331 | Sanitiza HTML para renderizar prompts en DOM |
-| `escapeAttr(str)` | 334 | Sanitiza atributos HTML |
-| `uid()` | 36 | Genera IDs únicos para prompts e imágenes |
+| Clave legacy | Destino |
+|---|---|
+| `chatgptPrompts` | Prompts con `modelId: "chatgpt"` |
+| `geminiPrompts` | Prompts con `modelId: "gemini"` |
+| `selectedPromptId` | `activePromptId` |
 
-**Flujo del botón btnCapture (paso 1, línea 138):**
-- Obtiene la pestaña activa con `chrome.tabs.query`
-- Valida con `isYouTubeVideo()` que sea `youtube.com/watch` o `youtube.com/shorts`
-- Guarda URL en `capturedURL` y en `chrome.storage.local` (`ytUrl`)
-- Activa paso 2, desactiva btnCapture, habilita btnGemini
+El formato legacy de imagenes como array de strings se descarta durante la normalizacion.
 
-**Flujo del botón btnGemini (paso 2, línea 160):**
-- Construye `fullPrompt = geminiPrompt + capturedURL`
-- Copia a portapapeles con `navigator.clipboard.writeText()`
-- Abre `https://gemini.google.com/app?hl=es` en nueva pestaña
-- Muestra `promptSelector`, habilita btnChatGPT
+## Imagenes referenciales
 
-**Flujo del botón btnChatGPT (paso 3, línea 179):**
-- Lee el prompt seleccionado del `<select>`
-- Lee el portapapeles (`navigator.clipboard.readText()`) para obtener el resumen de Gemini
-- Construye `fullPrompt = promptElegido.text + resumenDelPortapapeles`
-- Copia a portapapeles y abre `https://chatgpt.com/`
+Cada prompt guarda sus propias imagenes:
+
+```js
+images: [{ id, dataUrl, name }]
+```
+
+No hay store global de imagenes. Esto simplifica el modelo de datos, pero puede hacer crecer rapido `chrome.storage.local` porque las imagenes se guardan como base64.
+
+## Content scripts legacy
 
 ### `chatgpt_content.js`
-Content script que se ejecuta automáticamente en cualquier página de `chatgpt.com`.
 
-**Lo que hace:**
-1. Lee `pendingChatGPTPrompt` desde `chrome.storage.local`
-2. Si existe, espera hasta 8 segundos a que cargue el textarea con selector `#prompt-textarea, [contenteditable="true"]`
-3. Intenta inyectar el texto usando `document.execCommand('insertText')` y dispara un evento `input` para que React lo detecte
-4. Si falla, copia el prompt al portapapeles como fallback
-5. Muestra una notificación visual flotante (verde = inyectado, azul = copiado)
+Esta registrado en `manifest.json` para `https://chatgpt.com/*`. Busca `pendingChatGPTPrompt` en `chrome.storage.local`, intenta inyectarlo en el editor de ChatGPT y si falla lo copia al portapapeles.
+
+El flujo actual de `popup.js` no escribe `pendingChatGPTPrompt`, asi que normalmente este script no hace nada.
 
 ### `gemini_content.js`
-Funciona igual que `chatgpt_content.js` pero para Gemini. Lee `pendingGeminiPrompt` del storage y usa el selector `div.ql-editor, [contenteditable="true"], rich-textarea`.
 
----
+Es equivalente al content script de ChatGPT, pero para Gemini y la clave `pendingGeminiPrompt`. No esta registrado en `manifest.json`, por lo que no se ejecuta.
 
-## Estado actual del código — Discrepancia importante
+## Estado actual
 
-**Los content scripts están desconectados del flujo actual.**
+El proyecto vigente es **AI Prompt Vault v2**, no el pipeline antiguo YouTube -> Gemini -> ChatGPT.
 
-`popup.js` usa **únicamente el portapapeles** (`navigator.clipboard`) para pasar prompts a Gemini y ChatGPT. Nunca escribe `pendingGeminiPrompt` ni `pendingChatGPTPrompt` en storage.
+El pipeline viejo quedo representado solo por partes legacy:
 
-| Content script | Registrado en manifest | Clave storage que busca | Clave que popup.js escribe |
-|---|---|---|---|
-| `chatgpt_content.js` | ✓ Sí | `pendingChatGPTPrompt` | Nunca se escribe |
-| `gemini_content.js` | ✗ No | `pendingGeminiPrompt` | Nunca se escribe |
+- `chatgpt_content.js`
+- `gemini_content.js`
+- claves migradas `chatgptPrompts`, `geminiPrompts`, `selectedPromptId`
 
-**Consecuencia:** `chatgpt_content.js` se ejecuta en ChatGPT, no encuentra el storage key, y sale en la línea 6 (`if (!data.pendingChatGPTPrompt) return`). `gemini_content.js` directamente no se ejecuta porque no está registrado.
+La UI actual no contiene `btnCapture`, `btnGemini`, `btnChatGPT`, `screenImages`, `flowStep`, `flowUrl`, `ytUrl`, `savedImages` ni prompts globales `GEMINI_PROMPT` / `CHATGPT_PROMPT`.
 
-**El flujo actual es 100% manual**: la extensión copia el prompt al portapapeles y el usuario pega con Ctrl+V en cada servicio.
+## Recarga para probar cambios
 
-Los content scripts son código preparado para una **futura inyección automática** que nunca se completó o se desactivó en algún punto del desarrollo.
+Despues de modificar JS, HTML o manifest:
 
----
-
-## Flujo de trabajo completo
-
-```
-Usuario en YouTube
-       │
-       ▼
-[Popup] Paso 1: btnCapture
-  → chrome.tabs.query → valida youtube.com/watch o /shorts
-  → guarda URL en memoria + storage (ytUrl, flowUrl, flowStep=2)
-       │
-       ▼
-[Popup] Paso 2: btnGemini
-  → construye: geminiPrompt + URL
-  → clipboard.writeText(fullPrompt)
-  → chrome.tabs.create({ url: 'gemini.google.com' })
-  → [usuario pega Ctrl+V en Gemini, espera resumen, lo copia]
-       │
-       ▼
-[Popup] Paso 3: btnChatGPT
-  → usuario elige formato en <select>
-  → clipboard.readText() ← resumen copiado de Gemini
-  → construye: promptElegido.text + resumen
-  → clipboard.writeText(fullPrompt)
-  → chrome.tabs.create({ url: 'chatgpt.com' })
-  → [usuario pega Ctrl+V en ChatGPT, presiona Enter]
-       │
-       ▼
-   Resultado: infograma / hilo / resumen en ChatGPT
-```
-
----
-
-## Prompts por defecto
-
-**Gemini (1 prompt):**
-```
-Resume este video de YouTube de forma concisa y clara, destacando los
-puntos principales, ideas clave y conclusiones importantes.
-URL: [URL_DEL_VIDEO]
-```
-
-**ChatGPT (3 prompts intercambiables):**
-- `Infograma estructurado`: Título + 3-5 secciones con emojis + puntos clave + conclusión
-- `Hilo de Twitter/X`: 8-10 tweets con emojis y ganchos
-- `Resumen ejecutivo`: Contexto + puntos clave + conclusiones + próximos pasos
-
-El usuario puede editar, agregar o eliminar prompts desde la pestaña "Config". El prompt de Gemini es único; los de ChatGPT pueden ser ilimitados.
-
----
-
-## Persistencia de estado
-
-La extensión guarda el paso del flujo en `chrome.storage.local` para que si el usuario cierra y reabre el popup, el estado se restaure:
-
-- Si `flowStep >= 2`: se muestra la URL capturada y btnGemini habilitado
-- Si `flowStep >= 3`: además se muestra el selector de prompts y btnChatGPT habilitado
-- `btnReset` limpia todo: `chrome.storage.local.remove(['ytUrl', 'flowStep', 'flowUrl'])`
-
----
-
-## Tecnologías
-
-| Tecnología | Uso |
-|---|---|
-| Chrome Extensions Manifest V3 | Framework base |
-| `chrome.storage.local` | Persistencia de prompts, imágenes y estado del flujo |
-| `chrome.tabs` API | Capturar pestaña activa, abrir nuevas pestañas |
-| `navigator.clipboard` API | Copiar/leer portapapeles (requiere contexto seguro) |
-| `document.execCommand('insertText')` | Inyección de texto en editores ricos (deprecated pero funcional) |
-| `FileReader` API | Conversión de imágenes a base64 dataURL |
-| `ClipboardItem` API | Copiar imágenes al portapapeles |
-| Google Fonts (CDN) | Space Mono + Syne para la UI |
-| CSS puro | Todo el styling inline en popup.html |
-| JavaScript ES2020+ | async/await, optional chaining, sin frameworks |
-
----
-
-## Instalación
-
-1. Abrir Chrome → `chrome://extensions/`
-2. Activar "Modo desarrollador"
-3. "Cargar descomprimida" → seleccionar la carpeta del proyecto
-4. El ícono aparece en la barra de herramientas
-
----
-
-## Limitaciones conocidas
-
-- `gemini_content.js` no está registrado en `manifest.json`, nunca se ejecuta
-- Los content scripts nunca reciben datos de `popup.js` (keys de storage nunca escritas)
-- La inyección automática de prompts requiere conectar `popup.js` con los content scripts via storage
-- `document.execCommand('insertText')` está marcado como deprecated por los browsers
-- Las imágenes se guardan en base64 en `chrome.storage.local` (límite de ~5MB total)
-- Google Fonts se carga desde CDN; sin internet, la tipografía cae a monospace genérico
+1. Ir a `chrome://extensions/`.
+2. Recargar la extension.
+3. Cerrar y reabrir el side panel.

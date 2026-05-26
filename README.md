@@ -1,34 +1,58 @@
-# YT → Gemini → ChatGPT Extension
+# AI Prompt Vault
 
-## Instalación
+Extension de Chrome Manifest V3 para guardar prompts por modelo de IA, copiar datos rapido, unir un prompt con una memoria persistente y abrir el sitio del modelo elegido desde el side panel.
 
-1. Descarga y descomprime esta carpeta
-2. Abre Chrome → `chrome://extensions/`
-3. Activa **"Modo desarrollador"** (esquina superior derecha)
-4. Click en **"Cargar descomprimida"** → selecciona esta carpeta
-5. Agrega un ícono de 48x48px llamado `icon.png` en la carpeta (opcional)
+## Instalacion
+
+1. Abre Chrome y entra a `chrome://extensions/`.
+2. Activa **Modo desarrollador**.
+3. Haz click en **Cargar descomprimida**.
+4. Selecciona esta carpeta del proyecto.
+5. Recarga la extension despues de cambiar `popup.js`, `popup.html` o `manifest.json`.
 
 ## Uso
 
-1. Entra a cualquier video de YouTube
-2. Click en el ícono de la extensión
-3. **Step 1** → "Capturar URL"
-4. **Step 2** → "Abrir en Gemini" — el prompt se inyecta automáticamente, solo presiona Enter
-5. Copia el resumen que te da Gemini (Ctrl+C)
-6. **Step 3** → "Abrir en ChatGPT" — lee tu portapapeles y arma el prompt del infograma
+1. Abre el side panel de la extension.
+2. Elige un modelo de IA y un prompt.
+3. Usa **Copiar DATO** para copiar la seleccion de la pestana activa; si no hay seleccion, copia la URL actual.
+4. Usa **Guardar DATO** para persistir el texto del portapapeles como memoria.
+5. Edita el prompt si lo necesitas.
+6. Usa **UNIR prompt + DATO** para copiar el prompt junto con el dato guardado o el texto actual del portapapeles.
+7. Usa **Abrir modelo** para abrir la URL del modelo activo.
 
-## Editar prompts
+El placeholder `{{url}}` dentro de un prompt se reemplaza en pantalla por la URL de la pestana activa.
 
-Abre `popup.js` y edita las constantes al inicio:
+## Configuracion
 
-```js
-const GEMINI_PROMPT = `Tu prompt para Gemini aquí... `;
-const CHATGPT_PROMPT = `Tu prompt para ChatGPT aquí... `;
-```
+En la pestana **Config** puedes:
 
-## Notas
+- Agregar, editar o eliminar modelos de IA.
+- Configurar nombre, URL, color y soporte de imagenes de cada modelo.
+- Agregar prompts por modelo.
+- Adjuntar imagenes referenciales embebidas en cada prompt.
 
-- La inyección automática puede fallar si Gemini/ChatGPT actualizan su UI. 
-  En ese caso, el prompt se copia al portapapeles automáticamente (Ctrl+V).
-- El botón de ChatGPT intenta leer tu portapapeles para incluir el resumen.
-  Asegúrate de haber copiado el texto de Gemini antes de hacer click.
+Las imagenes se guardan como base64 dentro del prompt correspondiente. No existe una galeria global de imagenes.
+
+## Persistencia
+
+La extension usa `chrome.storage.local` con estas claves principales:
+
+- `aiModels`
+- `aiPrompts`
+- `activeModelId`
+- `activePromptId`
+- `promptMemory`
+
+Tambien puede migrar datos legacy desde:
+
+- `chatgptPrompts`
+- `geminiPrompts`
+- `selectedPromptId`
+
+## Notas tecnicas
+
+- No usa frameworks, imports, bundlers ni build step.
+- Todo el CSS vive en `popup.html`.
+- Toda la logica principal vive en `popup.js`.
+- `chatgpt_content.js` es legacy y esta registrado en `manifest.json`, pero no participa en el flujo principal actual.
+- `gemini_content.js` existe, pero no esta registrado en `manifest.json`.

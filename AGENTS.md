@@ -44,7 +44,7 @@ Esta escrito en HTML/CSS/JS vanilla, sin frameworks, imports, bundlers ni build 
 **CSS**
 
 - Todo el CSS vive dentro de `<style>` en `popup.html`.
-- Main: `420px`.
+- Panel actual: `720px`.
 - Config: `720px` usando `body.settings-open`.
 - No hay archivo `.css` separado.
 
@@ -75,7 +75,7 @@ La pantalla principal permite:
 - Editar temporalmente el texto antes de copiarlo.
 - Copiar el prompt al portapapeles.
 - Abrir la URL del modelo.
-- Insertar la URL de la pestana activa con el boton `Insertar URL`.
+- Copiar la seleccion de la pestana activa con `Copiar DATO`; si no hay seleccion, copia la URL actual.
 - Guardar y copiar una memoria persistente.
 
 El placeholder `{{url}}` se reemplaza en pantalla por la URL de la pestana activa cuando existe.
@@ -127,7 +127,7 @@ El formato viejo de imagenes como array de strings se descarta y queda como `[]`
 - `modelName`, `modelUrl`
 - `modelSelect`, `promptSelect`
 - `promptEditor`
-- `btnCopy`, `btnSaveMemory`, `btnInsertUrl`, `btnOpen`, `btnCopyMemory`, `btnClearMemory`
+- `btnCopy`, `btnSaveMemory`, `btnOpen`, `btnCopyMemory`, `btnClearMemory`
 - `promptPreviewImgs`
 - `pendingImages`, `pendingImgsGrid`
 - `memoryText`, `memoryMeta`
@@ -135,6 +135,9 @@ El formato viejo de imagenes como array de strings se descarta y queda como `[]`
 
 **Config**
 
+- `tabSettingsModels`, `tabSettingsPrompts`
+- `settingsModelsPanel`, `settingsPromptsPanel`
+- `promptModelTabs`
 - `modelsList`, `btnAddModel`
 - `promptsList`, `btnAddPrompt`
 
