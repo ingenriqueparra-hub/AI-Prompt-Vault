@@ -53,6 +53,9 @@ let activeModelId = null;
 let activePromptId = null;
 let promptMemory = null;
 let currentTabUrl = '';
+let activeSettingsTab = 'models';
+let activePromptSettingsModelId = null;
+let activePromptSettingsPromptId = null;
 
 const $ = id => document.getElementById(id);
 
@@ -184,7 +187,25 @@ function showScreen(name) {
 }
 
 function syncEditorToPrompt() {
-  saveMemoryFromEditor(false, false);
+  saveState();
+}
+
+async function getActiveTabSelection() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return '';
+
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const el = document.activeElement;
+      if (el && typeof el.value === 'string' && typeof el.selectionStart === 'number') {
+        return el.value.slice(el.selectionStart, el.selectionEnd);
+      }
+      return window.getSelection().toString();
+    }
+  });
+
+  return result?.result || '';
 }
 
 function renderModelSelect() {
@@ -217,7 +238,8 @@ function renderPromptSelect() {
 }
 
 function renderImages(images, targetId, removablePrompt = null) {
-  const grid = $(targetId);
+  const grid = typeof targetId === 'string' ? $(targetId) : targetId;
+  if (!grid) return;
   grid.innerHTML = '';
 
   if (!images || images.length === 0) {
@@ -245,6 +267,21 @@ function renderImages(images, targetId, removablePrompt = null) {
   });
 }
 
+function renderMemoryPanel() {
+  if (promptMemory?.text) {
+    $('memoryText').value = promptMemory.text;
+    $('memoryMeta').textContent = `Guardado: ${new Date(promptMemory.updatedAt).toLocaleString()}`;
+    $('btnCopyMemory').disabled = !getActivePrompt();
+    renderImages(promptMemory.images || [], 'pendingImgsGrid');
+    $('pendingImages').style.display = 'block';
+  } else {
+    $('memoryText').value = '';
+    $('memoryMeta').textContent = 'Sin memoria guardada';
+    $('btnCopyMemory').disabled = !getActivePrompt();
+    $('pendingImages').style.display = 'none';
+  }
+}
+
 function renderMain() {
   const model = getActiveModel();
   const prompt = getActivePrompt();
@@ -254,28 +291,17 @@ function renderMain() {
 
   $('modelName').textContent = model?.name || 'Modelo';
   $('modelName').style.color = model?.color || '#f0f0f0';
+  $('btnOpen').style.color = model?.color || '#f0f0f0';
+  $('btnOpen').style.borderColor = model?.color || '#295d2b';
+
   $('modelUrl').textContent = model?.url || '';
-  const editorText = promptMemory?.promptId === activePromptId ? promptMemory.text : applyPlaceholders(prompt?.text || '');
-  $('promptEditor').value = editorText;
+  $('promptEditor').value = applyPlaceholders(prompt?.text || '');
   $('btnOpen').disabled = !model?.url;
   $('btnCopy').disabled = !prompt;
   $('btnSaveMemory').disabled = !prompt;
-  $('btnInsertUrl').disabled = !currentTabUrl;
 
   renderImages(prompt?.images || [], 'promptPreviewImgs');
-
-  if (promptMemory?.text) {
-    $('memoryText').value = promptMemory.text;
-    $('memoryMeta').textContent = `Guardado: ${new Date(promptMemory.updatedAt).toLocaleString()}`;
-    $('btnCopyMemory').disabled = false;
-    renderImages(promptMemory.images || [], 'pendingImgsGrid');
-    $('pendingImages').style.display = 'block';
-  } else {
-    $('memoryText').value = '';
-    $('memoryMeta').textContent = 'Sin memoria guardada';
-    $('btnCopyMemory').disabled = true;
-    $('pendingImages').style.display = 'none';
-  }
+  renderMemoryPanel();
 }
 
 async function copyText(text, msg) {
@@ -284,9 +310,22 @@ async function copyText(text, msg) {
   showToast('Copiado');
 }
 
-async function saveMemoryFromEditor(showNotice = true, rerender = true) {
+async function readClipboardText() {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return '';
+  }
+}
+
+async function saveClipboardToMemory(showNotice = true, rerender = true) {
   const prompt = getActivePrompt();
-  const text = $('promptEditor').value;
+  const text = await readClipboardText();
+  if (!text.trim()) {
+    showToast('Portapapeles vacio', 'err');
+    return;
+  }
+
   promptMemory = {
     modelId: activeModelId,
     promptId: activePromptId,
@@ -295,13 +334,41 @@ async function saveMemoryFromEditor(showNotice = true, rerender = true) {
     updatedAt: Date.now()
   };
   await saveState();
-  if (rerender) renderMain();
+  if (rerender) renderMemoryPanel();
   if (showNotice) showToast('Memoria guardada');
+}
+
+async function prependPromptToClipboard() {
+  const promptText = $('promptEditor').value.trim();
+  const currentClipboard = await readClipboardText();
+  const savedText = promptMemory?.text || '';
+  const copiedText = currentClipboard || savedText;
+
+  if (!promptText) {
+    showToast('Prompt vacio', 'err');
+    return;
+  }
+
+  if (!copiedText.trim()) {
+    showToast('No hay texto copiado ni memoria', 'err');
+    return;
+  }
+
+  await copyText(`${promptText}\n\n${copiedText}`, 'Prompt agregado antes del texto copiado');
 }
 
 function renderSettingsScreen() {
   renderModelsList();
   renderPromptsList();
+  showSettingsTab(activeSettingsTab);
+}
+
+function showSettingsTab(tab) {
+  activeSettingsTab = tab;
+  $('tabSettingsModels').classList.toggle('active', tab === 'models');
+  $('tabSettingsPrompts').classList.toggle('active', tab === 'prompts');
+  $('settingsModelsPanel').classList.toggle('active', tab === 'models');
+  $('settingsPromptsPanel').classList.toggle('active', tab === 'prompts');
 }
 
 function renderModelsList() {
@@ -346,80 +413,135 @@ function renderModelsList() {
 }
 
 function renderPromptsList() {
+  const tabs = $('promptModelTabs');
   const list = $('promptsList');
+  tabs.innerHTML = '';
   list.innerHTML = '';
 
+  if (!aiModels.some(m => m.id === activePromptSettingsModelId)) {
+    activePromptSettingsModelId = activeModelId || aiModels[0]?.id || null;
+  }
+
   aiModels.forEach(model => {
-    const groupPrompts = aiPrompts.filter(p => p.modelId === model.id);
-    const section = document.createElement('div');
-    section.className = 'prompt-group';
-    section.innerHTML = `<div class="prompt-group-title" style="color:${escapeAttr(model.color)}">${escapeHtml(model.name)}</div>`;
+    const btn = document.createElement('button');
+    btn.className = 'prompt-model-tab' + (model.id === activePromptSettingsModelId ? ' active' : '');
+    btn.textContent = model.name;
+    btn.style.borderColor = model.id === activePromptSettingsModelId ? model.color : '';
+    btn.addEventListener('click', () => {
+      activePromptSettingsModelId = model.id;
+      activeModelId = model.id;
+      renderPromptsList();
+      renderMain();
+    });
+    tabs.appendChild(btn);
+  });
+
+  const activeModel = aiModels.find(m => m.id === activePromptSettingsModelId);
+  const groupPrompts = aiPrompts.filter(p => p.modelId === activePromptSettingsModelId);
+  const section = document.createElement('div');
+  section.className = 'prompt-group';
+  section.innerHTML = `<div class="prompt-group-title" style="color:${escapeAttr(activeModel?.color || '#f0f0f0')}">${escapeHtml(activeModel?.name || 'Modelo')}</div>`;
+
+  if (!groupPrompts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-note';
+    empty.textContent = 'Sin prompts para este modelo';
+    section.appendChild(empty);
+  } else {
+    if (!groupPrompts.some(p => p.id === activePromptSettingsPromptId)) {
+      activePromptSettingsPromptId = activePromptId && groupPrompts.some(p => p.id === activePromptId)
+        ? activePromptId
+        : groupPrompts[0].id;
+    }
+
+    const layout = document.createElement('div');
+    layout.className = 'prompt-editor-layout';
+
+    const promptTabs = document.createElement('div');
+    promptTabs.className = 'prompt-tabs-vertical';
 
     groupPrompts.forEach(prompt => {
-      const item = document.createElement('div');
-      item.className = 'prompt-item';
-      item.dataset.id = prompt.id;
-      item.innerHTML = `
-        <div class="prompt-item-header">
-          <input class="prompt-name-input" type="text" value="${escapeAttr(prompt.name)}" placeholder="Nombre del prompt">
-          <select class="prompt-model-input"></select>
-          <div class="prompt-item-actions">
-            <button class="icon-btn save-btn">Guardar</button>
-            <button class="icon-btn danger">x</button>
-          </div>
-        </div>
-        <textarea class="prompt-text-input" placeholder="Escribe el prompt aqui...">${escapeHtml(prompt.text)}</textarea>
-        <div class="prompt-imgs-row" id="imgs-${prompt.id}"></div>
-        <label class="add-img-btn">+ Imagen<input type="file" accept="image/*" multiple></label>
-      `;
-
-      const modelInput = item.querySelector('.prompt-model-input');
-      aiModels.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.name;
-        modelInput.appendChild(opt);
-      });
-      modelInput.value = prompt.modelId;
-
-      renderImages(prompt.images, `imgs-${prompt.id}`, prompt);
-
-      item.querySelector('input[type=file]').addEventListener('change', async e => {
-        const files = Array.from(e.target.files);
-        for (const file of files) {
-          prompt.images.push({ id: uid(), dataUrl: await fileToDataUrl(file), name: file.name });
-        }
-        await saveState();
-        renderSettingsScreen();
-        renderMain();
-        showToast(`${files.length} imagen(es) agregada(s)`);
-      });
-
-      item.querySelector('.save-btn').addEventListener('click', async () => {
-        prompt.name = item.querySelector('.prompt-name-input').value.trim() || 'Sin nombre';
-        prompt.modelId = modelInput.value;
-        prompt.text = item.querySelector('.prompt-text-input').value;
-        if (prompt.id === activePromptId) activeModelId = prompt.modelId;
-        await saveState();
-        renderSettingsScreen();
-        renderMain();
-        showToast('Prompt guardado');
-      });
-
-      item.querySelector('.danger').addEventListener('click', async () => {
-        if (aiPrompts.length <= 1) { showToast('Debes tener al menos 1 prompt', 'err'); return; }
-        aiPrompts = aiPrompts.filter(p => p.id !== prompt.id);
-        if (activePromptId === prompt.id) activePromptId = aiPrompts[0]?.id || null;
-        await saveState();
-        renderSettingsScreen();
+      const tab = document.createElement('button');
+      tab.className = 'prompt-tab-vertical' + (prompt.id === activePromptSettingsPromptId ? ' active' : '');
+      tab.textContent = prompt.name;
+      tab.addEventListener('click', () => {
+        activePromptSettingsPromptId = prompt.id;
+        activePromptId = prompt.id;
+        renderPromptsList();
         renderMain();
       });
-
-      section.appendChild(item);
+      promptTabs.appendChild(tab);
     });
 
-    list.appendChild(section);
-  });
+    const prompt = groupPrompts.find(p => p.id === activePromptSettingsPromptId) || groupPrompts[0];
+    const item = document.createElement('div');
+    item.className = 'prompt-item';
+    item.dataset.id = prompt.id;
+    item.innerHTML = `
+      <div class="prompt-item-header">
+        <input class="prompt-name-input" type="text" value="${escapeAttr(prompt.name)}" placeholder="Nombre del prompt">
+        <select class="prompt-model-input"></select>
+        <div class="prompt-item-actions">
+          <button class="icon-btn save-btn">Guardar</button>
+          <button class="icon-btn danger">x</button>
+        </div>
+      </div>
+      <textarea class="prompt-text-input" placeholder="Escribe el prompt aqui...">${escapeHtml(prompt.text)}</textarea>
+      <div class="prompt-imgs-row" id="imgs-${prompt.id}"></div>
+      <label class="add-img-btn">+ Imagen<input type="file" accept="image/*" multiple></label>
+    `;
+
+    const modelInput = item.querySelector('.prompt-model-input');
+    aiModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name;
+      modelInput.appendChild(opt);
+    });
+    modelInput.value = prompt.modelId;
+
+    item.querySelector('input[type=file]').addEventListener('change', async e => {
+      const files = Array.from(e.target.files);
+      for (const file of files) {
+        prompt.images.push({ id: uid(), dataUrl: await fileToDataUrl(file), name: file.name });
+      }
+      await saveState();
+      renderSettingsScreen();
+      renderMain();
+      showToast(`${files.length} imagen(es) agregada(s)`);
+    });
+
+    item.querySelector('.save-btn').addEventListener('click', async () => {
+      prompt.name = item.querySelector('.prompt-name-input').value.trim() || 'Sin nombre';
+      prompt.modelId = modelInput.value;
+      prompt.text = item.querySelector('.prompt-text-input').value;
+      activePromptId = prompt.id;
+      activeModelId = prompt.modelId;
+      activePromptSettingsModelId = prompt.modelId;
+      activePromptSettingsPromptId = prompt.id;
+      await saveState();
+      renderSettingsScreen();
+      renderMain();
+      showToast('Prompt guardado');
+    });
+
+    item.querySelector('.danger').addEventListener('click', async () => {
+      if (aiPrompts.length <= 1) { showToast('Debes tener al menos 1 prompt', 'err'); return; }
+      aiPrompts = aiPrompts.filter(p => p.id !== prompt.id);
+      if (activePromptId === prompt.id) activePromptId = aiPrompts[0]?.id || null;
+      activePromptSettingsPromptId = aiPrompts.find(p => p.modelId === activePromptSettingsModelId)?.id || null;
+      await saveState();
+      renderSettingsScreen();
+      renderMain();
+    });
+
+    renderImages(prompt.images, item.querySelector('.prompt-imgs-row'), prompt);
+    layout.appendChild(promptTabs);
+    layout.appendChild(item);
+    section.appendChild(layout);
+  }
+
+  list.appendChild(section);
 }
 
 $('tabMain').addEventListener('click', () => {
@@ -433,6 +555,14 @@ $('tabSettings').addEventListener('click', () => {
   syncEditorToPrompt();
   saveState();
   showScreen('settings');
+});
+
+$('tabSettingsModels').addEventListener('click', () => {
+  showSettingsTab('models');
+});
+
+$('tabSettingsPrompts').addEventListener('click', () => {
+  showSettingsTab('prompts');
 });
 
 $('modelSelect').addEventListener('change', async () => {
@@ -456,32 +586,28 @@ $('promptEditor').addEventListener('input', () => {
 });
 
 $('btnCopy').addEventListener('click', async () => {
-  await saveMemoryFromEditor();
-  await copyText($('promptEditor').value, 'Prompt copiado y guardado en memoria');
+  try {
+    const selection = await getActiveTabSelection();
+    const textToCopy = selection.trim() ? selection : currentTabUrl;
+    if (!textToCopy.trim()) {
+      showToast('No hay seleccion ni URL', 'err');
+      return;
+    }
+    await copyText(textToCopy, selection.trim() ? 'Seleccion copiada' : 'URL copiada');
+  } catch {
+    showToast('No se pudo leer la seleccion', 'err');
+  }
 });
 
-$('btnSaveMemory').addEventListener('click', saveMemoryFromEditor);
+$('btnSaveMemory').addEventListener('click', saveClipboardToMemory);
 
 $('btnCopyMemory').addEventListener('click', async () => {
-  if (!promptMemory?.text) return;
-  await copyText(promptMemory.text, 'Memoria copiada');
+  await prependPromptToClipboard();
 });
 
 $('btnOpen').addEventListener('click', () => {
   const model = getActiveModel();
   if (model?.url) chrome.tabs.create({ url: model.url });
-});
-
-$('btnInsertUrl').addEventListener('click', () => {
-  if (!currentTabUrl) return;
-  const editor = $('promptEditor');
-  const start = editor.selectionStart;
-  const end = editor.selectionEnd;
-  editor.value = editor.value.slice(0, start) + currentTabUrl + editor.value.slice(end);
-  editor.focus();
-  editor.selectionStart = editor.selectionEnd = start + currentTabUrl.length;
-  syncEditorToPrompt();
-  saveState();
 });
 
 $('btnClearMemory').addEventListener('click', async () => {
@@ -495,6 +621,7 @@ $('btnAddModel').addEventListener('click', async () => {
   const id = uid();
   aiModels.push({ id, name: 'Nuevo modelo', url: '', color: '#8888ff', supportsImages: true });
   activeModelId = id;
+  activeSettingsTab = 'models';
   await saveState();
   renderSettingsScreen();
   renderMain();
@@ -502,11 +629,17 @@ $('btnAddModel').addEventListener('click', async () => {
 
 $('btnAddPrompt').addEventListener('click', async () => {
   const id = uid();
-  aiPrompts.push({ id, modelId: activeModelId, name: 'Nuevo prompt', text: 'Escribe aqui el prompt...', images: [] });
+  const modelId = activePromptSettingsModelId || activeModelId || aiModels[0]?.id;
+  aiPrompts.push({ id, modelId, name: 'Nuevo prompt', text: 'Escribe aqui el prompt...', images: [] });
+  activeModelId = modelId;
   activePromptId = id;
+  activeSettingsTab = 'prompts';
+  activePromptSettingsModelId = modelId;
+  activePromptSettingsPromptId = id;
   await saveState();
   renderSettingsScreen();
   renderMain();
+  showToast('Prompt agregado');
 });
 
 (async () => {

@@ -1,0 +1,22 @@
+Convierte el popup de la extensión en un Side Panel de Chrome.
+
+Cambios requeridos:
+
+1. manifest.json:
+   - Agregar "sidePanel" a permissions
+   - Quitar "default_popup" de action
+   - Agregar "side_panel": { "default_path": "popup.html" }
+   - Agregar background service worker: "background": { "service_worker": "background.js" }
+
+2. Crear background.js:
+   - chrome.action.onClicked → chrome.sidePanel.open({ windowId: tab.windowId })
+
+3. popup.html:
+   - body width: 360px → width: 100%, max-width: 420px
+   - Quitar overflow: hidden del body (el panel maneja el scroll)
+
+4. popup.js:
+   - En showScreen('settings'): quitar el cambio dinámico de body width a 600px, usar width: 100% siempre
+   - Conservar toda la lógica de flujo, prompts e imágenes intacta
+
+No cambiar: IDs del DOM, lógica de clipboard, content scripts, estructura de prompts, chrome.storage keys existentes.

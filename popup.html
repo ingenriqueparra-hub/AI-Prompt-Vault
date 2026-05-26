@@ -5,7 +5,7 @@
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { width: 420px; max-width: 420px; min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: 'Space Mono', monospace; overflow: hidden; }
+    body { width: 720px; max-width: 720px; min-height: 100vh; background: #0a0a0a; color: #f0f0f0; font-family: 'Space Mono', monospace; overflow: hidden; }
     body.settings-open { width: 720px; max-width: 720px; overflow: auto; }
     .header { background: #111; border-bottom: 1px solid #252525; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
     .header h1 { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 800; letter-spacing: 0.04em; color: #fff; }
@@ -27,7 +27,6 @@
     .select:focus, .input:focus, .textarea:focus { border-color: #777; }
     .textarea { min-height: 168px; resize: vertical; line-height: 1.5; }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .actions.three { grid-template-columns: 1fr 1fr 1fr; }
     .btn { width: 100%; min-height: 36px; padding: 9px; border: 1px solid #333; border-radius: 7px; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; background: #1a1a1a; color: #ddd; }
     .btn:hover { border-color: #777; background: #222; }
     .btn:disabled { color: #444; border-color: #222; background: #111; cursor: not-allowed; }
@@ -49,6 +48,14 @@
     .status.warn { color: #ff9800; }
     .status.err { color: #f44336; }
     .settings-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
+    .settings-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .settings-tab-btn { background: #1b1b1b; border: 1px solid #303030; border-radius: 6px; color: #aaa; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 9px; cursor: pointer; text-transform: uppercase; }
+    .settings-tab-btn:hover, .settings-tab-btn.active { background: #f0f0f0; color: #111; border-color: #f0f0f0; }
+    .prompt-model-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+    .prompt-model-tab { background: #151515; border: 1px solid #303030; border-radius: 6px; color: #aaa; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; padding: 7px 10px; cursor: pointer; }
+    .prompt-model-tab.active { color: #111; background: #f0f0f0; border-color: #f0f0f0; }
+    .settings-panel { display: none; }
+    .settings-panel.active { display: block; }
     .settings-section-title { font-size: 13px; color: #fff; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid #2a2a2a; text-transform: uppercase; }
     #modelsList, #promptsList { display: flex; flex-direction: column; gap: 12px; }
     .model-item { display: grid; grid-template-columns: 1fr 1.4fr 44px 64px 74px 36px; gap: 8px; align-items: center; background: #101010; border: 1px solid #2a2a2a; border-radius: 8px; padding: 10px; }
@@ -57,6 +64,10 @@
     .model-check { color: #777; font-size: 10px; display: flex; align-items: center; gap: 4px; }
     .prompt-group { display: flex; flex-direction: column; gap: 10px; }
     .prompt-group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .prompt-editor-layout { display: grid; grid-template-columns: 180px 1fr; gap: 12px; align-items: start; }
+    .prompt-tabs-vertical { display: flex; flex-direction: column; gap: 7px; }
+    .prompt-tab-vertical { width: 100%; background: #151515; border: 1px solid #303030; border-radius: 6px; color: #aaa; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; line-height: 1.25; padding: 9px; cursor: pointer; text-align: left; }
+    .prompt-tab-vertical.active { background: #f0f0f0; color: #111; border-color: #f0f0f0; }
     .prompt-item { background: #101010; border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
     .prompt-item-header { display: grid; grid-template-columns: 1fr 150px auto; gap: 8px; align-items: center; }
     .prompt-item-actions { display: flex; gap: 6px; }
@@ -111,22 +122,21 @@
     </div>
 
     <div class="panel">
-      <div class="label">Prompt editable</div>
-      <textarea class="textarea" id="promptEditor" placeholder="Escribe o elige un prompt..."></textarea>
-      <div class="actions three">
-        <button class="btn btn-primary" id="btnCopy">Copiar</button>
-        <button class="btn" id="btnSaveMemory">Guardar memoria</button>
-        <button class="btn" id="btnInsertUrl">Insertar URL</button>
-      </div>
+      <div class="label">Dato</div>
       <div class="actions">
-        <button class="btn btn-success" id="btnOpen">Abrir modelo</button>
-        <button class="btn" id="btnCopyMemory">Copiar memoria</button>
+        <button class="btn btn-primary" id="btnCopy">Copiar DATO</button>
+        <button class="btn" id="btnSaveMemory">Guardar DATO</button>
       </div>
     </div>
 
     <div class="panel">
-      <div class="label">Imagenes del prompt</div>
+      <div class="label">Prompt editable</div>
       <div id="promptPreviewImgs" class="img-grid"></div>
+      <textarea class="textarea" id="promptEditor" placeholder="Escribe o elige un prompt..."></textarea>
+      <div class="actions">
+        <button class="btn btn-success" id="btnOpen">Abrir modelo</button>
+        <button class="btn" id="btnCopyMemory">UNIR prompt + DATO</button>
+      </div>
     </div>
 
     <div class="panel" id="pendingImages">
@@ -147,13 +157,20 @@
 
 <div class="screen" id="screenSettings">
   <div class="settings-body">
-    <div>
+    <div class="settings-tabs">
+      <button class="settings-tab-btn active" id="tabSettingsModels">Modelos de IA</button>
+      <button class="settings-tab-btn" id="tabSettingsPrompts">Prompts por modelo</button>
+    </div>
+
+    <div class="settings-panel active" id="settingsModelsPanel">
       <div class="settings-section-title">Modelos de IA</div>
       <div id="modelsList"></div>
       <button class="add-prompt-btn" id="btnAddModel">+ Agregar modelo</button>
     </div>
-    <div>
+
+    <div class="settings-panel" id="settingsPromptsPanel">
       <div class="settings-section-title">Prompts por modelo</div>
+      <div class="prompt-model-tabs" id="promptModelTabs"></div>
       <div id="promptsList"></div>
       <button class="add-prompt-btn" id="btnAddPrompt">+ Agregar prompt</button>
     </div>
